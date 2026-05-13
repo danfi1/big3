@@ -65,18 +65,6 @@
 
     section { margin-bottom: 32px; }
 
-    /* ── Empty state ── */
-    .empty {
-      background: var(--surface);
-      border: 1px dashed var(--border);
-      border-radius: var(--r);
-      padding: 28px;
-      text-align: center;
-      color: var(--muted);
-      font-size: 0.88rem;
-      line-height: 1.6;
-    }
-
     /* ── Task card ── */
     .card {
       background: var(--surface);
@@ -173,6 +161,40 @@
     }
     .input-row input:focus { border-color: var(--accent); }
 
+    /* ── Pick from backlog (inside plan form) ── */
+    .pick-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-top: 16px;
+      margin-bottom: 8px;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .bl-pill {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 0.78rem;
+      font-family: inherit;
+      color: var(--text);
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s;
+      text-align: left;
+    }
+    .bl-pill:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
     .save-btn {
       width: 100%;
       margin-top: 14px;
@@ -221,6 +243,73 @@
       padding: 0;
     }
     .edit-btn:hover { text-decoration: underline; }
+
+    /* ── Backlog section ── */
+    .bl-add-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .bl-add-row input {
+      flex: 1;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 9px 12px;
+      font-size: 0.9rem;
+      font-family: inherit;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .bl-add-row input:focus { border-color: var(--accent); }
+    .bl-add-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 9px 16px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: opacity 0.15s;
+    }
+    .bl-add-btn:hover { opacity: 0.85; }
+
+    .bl-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 10px 14px;
+      margin-bottom: 7px;
+    }
+    .bl-item-text {
+      flex: 1;
+      font-size: 0.9rem;
+    }
+    .bl-del {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 1rem;
+      cursor: pointer;
+      padding: 0 2px;
+      line-height: 1;
+      transition: color 0.12s;
+    }
+    .bl-del:hover { color: #e11d48; }
+
+    .bl-empty {
+      font-size: 0.85rem;
+      color: var(--muted);
+      text-align: center;
+      padding: 16px 0 4px;
+    }
 
     /* ── History ── */
     details summary {
@@ -284,11 +373,14 @@
 
 <script>
   const KEY = 'big3_v1';
+  let editingToday    = false;
   let editingTomorrow = false;
 
   function load() {
-    try { return JSON.parse(localStorage.getItem(KEY)) || { days: {} }; }
-    catch { return { days: {} }; }
+    try {
+      const d = JSON.parse(localStorage.getItem(KEY)) || {};
+      return { days: d.days || {}, backlog: d.backlog || [] };
+    } catch { return { days: {}, backlog: [] }; }
   }
 
   function save(data) {
@@ -311,13 +403,15 @@
     });
   }
 
-  const STATUSES  = ['todo', 'in-progress', 'done'];
-  const ST_LABEL  = { todo: 'To Do', 'in-progress': 'In Progress', done: 'Done' };
-  const ST_DOT    = { todo: '○', 'in-progress': '◐', done: '●' };
+  const STATUSES = ['todo', 'in-progress', 'done'];
+  const ST_LABEL = { todo: 'To Do', 'in-progress': 'In Progress', done: 'Done' };
+  const ST_DOT   = { todo: '○', 'in-progress': '◐', done: '●' };
 
   function nextStatus(s) {
     return STATUSES[(STATUSES.indexOf(s) + 1) % STATUSES.length];
   }
+
+  /* ── Data mutations ── */
 
   function cycleStatus(date, taskId) {
     const data = load();
@@ -330,14 +424,13 @@
     render();
   }
 
-  function saveTomorrow(texts) {
+  function saveDay(date, texts) {
     const data = load();
-    const td = tomorrowStr();
-    const now = new Date().toISOString();
-    data.days[td] = {
+    const now  = new Date().toISOString();
+    data.days[date] = {
       createdAt: now,
       tasks: texts.map((text, i) => ({
-        id: `${td}-${i}`,
+        id: `${date}-${i}`,
         text,
         createdAt: now,
         status: 'todo',
@@ -345,10 +438,26 @@
       }))
     };
     save(data);
-    editingTomorrow = false;
+  }
+
+  function saveToday(texts)    { saveDay(todayStr(),    texts); editingToday    = false; render(); }
+  function saveTomorrow(texts) { saveDay(tomorrowStr(), texts); editingTomorrow = false; render(); }
+
+  function addToBacklog(text) {
+    const data = load();
+    data.backlog.push({ id: 'bl-' + Date.now(), text, createdAt: new Date().toISOString() });
+    save(data);
     render();
   }
 
+  function removeFromBacklog(id) {
+    const data = load();
+    data.backlog = data.backlog.filter(b => b.id !== id);
+    save(data);
+    render();
+  }
+
+  /* ── HTML escape ── */
   function esc(s) {
     return String(s)
       .replace(/&/g, '&amp;')
@@ -371,19 +480,28 @@
     `).join('');
   }
 
-  function renderPlanForm(existing) {
-    const vals = existing?.tasks.map(t => t.text) ?? ['', '', ''];
+  function renderPlanForm(existing, formId, btnLabel, backlog) {
+    const vals      = existing?.tasks.map(t => t.text) ?? ['', '', ''];
     const allFilled = vals.every(v => v.trim());
+    const pills     = backlog.length ? `
+      <div class="pick-label">Pick from backlog</div>
+      <div class="pill-row">
+        ${backlog.map(b => `
+          <button class="bl-pill" data-btext="${esc(b.text)}">${esc(b.text)}</button>
+        `).join('')}
+      </div>
+    ` : '';
+
     return `
-      <div class="form-box" id="plan-form">
-        <p>What are your 3 most important tasks for tomorrow?</p>
+      <div class="form-box" id="${formId}">
         ${vals.map((v, i) => `
           <div class="input-row">
             <span class="n">${i + 1}</span>
             <input type="text" placeholder="Task ${i + 1}" value="${esc(v)}" maxlength="200" />
           </div>
         `).join('')}
-        <button class="save-btn" ${allFilled ? '' : 'disabled'}>Save for Tomorrow</button>
+        ${pills}
+        <button class="save-btn" ${allFilled ? '' : 'disabled'}>${btnLabel}</button>
       </div>
     `;
   }
@@ -398,6 +516,27 @@
           </div>
         `).join('')}
         <button class="edit-btn" id="edit-tomorrow">Edit</button>
+      </div>
+    `;
+  }
+
+  function renderBacklogSection(backlog) {
+    const items = backlog.length
+      ? backlog.map(b => `
+          <div class="bl-item">
+            <span class="bl-item-text">${esc(b.text)}</span>
+            <button class="bl-del" data-id="${esc(b.id)}" title="Remove">×</button>
+          </div>
+        `).join('')
+      : '<div class="bl-empty">No items yet — add ideas above.</div>';
+
+    return `
+      <div class="form-box">
+        <div class="bl-add-row">
+          <input id="bl-input" type="text" placeholder="Add a task idea…" maxlength="200" />
+          <button class="bl-add-btn" id="bl-add">Add</button>
+        </div>
+        ${items}
       </div>
     `;
   }
@@ -417,18 +556,71 @@
     `;
   }
 
-  /* ── Main render ── */
+  /* ── Wire up a plan form ── */
+  function wirePlanForm(formId, onSave) {
+    const form = document.getElementById(formId);
+    if (!form) return;
 
+    const inputs  = [...form.querySelectorAll('.input-row input')];
+    const saveBtn = form.querySelector('.save-btn');
+
+    const check = () => { saveBtn.disabled = inputs.some(i => !i.value.trim()); };
+    inputs.forEach(inp => inp.addEventListener('input', check));
+
+    saveBtn.addEventListener('click', () => {
+      const texts = inputs.map(i => i.value.trim());
+      if (texts.some(t => !t)) return;
+      onSave(texts);
+    });
+
+    inputs.forEach((inp, idx) => {
+      inp.addEventListener('keydown', e => {
+        if (e.key !== 'Enter') return;
+        if (idx < inputs.length - 1) inputs[idx + 1].focus();
+        else saveBtn.click();
+      });
+    });
+
+    form.querySelectorAll('.bl-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        const text  = pill.dataset.btext;
+        const empty = inputs.find(i => !i.value.trim());
+        if (!empty) return;
+        empty.value = text;
+        check();
+        empty.focus();
+      });
+    });
+
+    (inputs.find(i => !i.value.trim()) ?? inputs[0]).focus();
+  }
+
+  /* ── Main render ── */
   function render() {
     const data     = load();
     const today    = todayStr();
     const tomorrow = tomorrowStr();
     const todayDay    = data.days[today];
     const tomorrowDay = data.days[tomorrow];
+    const backlog     = data.backlog;
 
     const histDates = Object.keys(data.days)
       .filter(d => d !== today && d !== tomorrow && d < today)
       .sort((a, b) => b.localeCompare(a));
+
+    let todayContent;
+    if (todayDay && !editingToday) {
+      todayContent = renderTodayCards(todayDay, today);
+    } else {
+      todayContent = renderPlanForm(editingToday ? todayDay : null, 'today-form', "Save Today's Big 3", backlog);
+    }
+
+    let tomorrowContent;
+    if (tomorrowDay && !editingTomorrow) {
+      tomorrowContent = renderTomorrowPreview(tomorrowDay);
+    } else {
+      tomorrowContent = renderPlanForm(editingTomorrow ? tomorrowDay : null, 'tomorrow-form', 'Save for Tomorrow', backlog);
+    }
 
     document.getElementById('app').innerHTML = `
       <header>
@@ -438,18 +630,20 @@
 
       <section>
         <div class="label">Today</div>
-        ${todayDay
-          ? renderTodayCards(todayDay, today)
-          : '<div class="empty">No tasks planned for today.<br>Use the section below to plan tomorrow.</div>'
-        }
+        ${todayContent}
+        ${(todayDay && !editingToday) ? `
+          <button class="edit-btn" id="edit-today" style="margin-top:10px">Edit</button>
+        ` : ''}
       </section>
 
       <section>
         <div class="label">Plan for Tomorrow</div>
-        ${(tomorrowDay && !editingTomorrow)
-          ? renderTomorrowPreview(tomorrowDay)
-          : renderPlanForm(editingTomorrow ? tomorrowDay : null)
-        }
+        ${tomorrowContent}
+      </section>
+
+      <section>
+        <div class="label">Backlog</div>
+        ${renderBacklogSection(backlog)}
       </section>
 
       ${histDates.length ? `
@@ -468,35 +662,34 @@
       btn.addEventListener('click', () => cycleStatus(btn.dataset.date, btn.dataset.id));
     });
 
-    const editBtn = document.getElementById('edit-tomorrow');
-    if (editBtn) {
-      editBtn.addEventListener('click', () => { editingTomorrow = true; render(); });
+    document.getElementById('edit-today')?.addEventListener('click', () => {
+      editingToday = true; render();
+    });
+
+    document.getElementById('edit-tomorrow')?.addEventListener('click', () => {
+      editingTomorrow = true; render();
+    });
+
+    wirePlanForm('today-form',    saveToday);
+    wirePlanForm('tomorrow-form', saveTomorrow);
+
+    /* backlog add */
+    const blInput = document.getElementById('bl-input');
+    const blAdd   = document.getElementById('bl-add');
+    if (blAdd && blInput) {
+      const doAdd = () => {
+        const t = blInput.value.trim();
+        if (!t) return;
+        addToBacklog(t);
+      };
+      blAdd.addEventListener('click', doAdd);
+      blInput.addEventListener('keydown', e => { if (e.key === 'Enter') doAdd(); });
     }
 
-    const form = document.getElementById('plan-form');
-    if (form) {
-      const inputs  = [...form.querySelectorAll('input')];
-      const saveBtn = form.querySelector('.save-btn');
-
-      const check = () => { saveBtn.disabled = inputs.some(i => !i.value.trim()); };
-      inputs.forEach(inp => inp.addEventListener('input', check));
-
-      saveBtn.addEventListener('click', () => {
-        const texts = inputs.map(i => i.value.trim());
-        if (texts.some(t => !t)) return;
-        saveTomorrow(texts);
-      });
-
-      inputs.forEach((inp, idx) => {
-        inp.addEventListener('keydown', e => {
-          if (e.key !== 'Enter') return;
-          if (idx < inputs.length - 1) inputs[idx + 1].focus();
-          else saveBtn.click();
-        });
-      });
-
-      (inputs.find(i => !i.value.trim()) ?? inputs[0]).focus();
-    }
+    /* backlog delete */
+    document.querySelectorAll('.bl-del').forEach(btn => {
+      btn.addEventListener('click', () => removeFromBacklog(btn.dataset.id));
+    });
   }
 
   render();
